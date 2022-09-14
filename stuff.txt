@@ -1,0 +1,311 @@
+directional light: colour of each pixel is the sum of the ambient, diffuse and specular lighting
+- vec3 lightDir = vec3(0,-1,0)
+
+light colour: cannot 'paint' a colour on an object, red light (1,0,0) can only reflect red properties of surface
+- lightColour * surfaceColour = ReflectedColour
+
+ambient light: no origin, no direction, no normals. AmbientFactor is a variable, typically [0,1]
+- ambient = lightColour * ObjectColour * AmbientFactor
+
+diffuse light: lamberts cosine law, luminous intensity is directly proportional to the cosine of the angle between direction of light and surface normal, dot product 
+a.b = |a||b|cos()
+- float diffuseFactor = dot(norm, -lightDir) 
+- diffuseFactor = max(diffuseFactor, 0.0);
+- vec3 diffuseColor = lightCol*objectCol*diffuseFactor;
+
+specular light: more a property of the object -not the light, shine and highlights, calculated using direction of light (diffuse) but also position of viewer,
+light strikes surface and is reflected away, reflected away at same angle on other side of normal
+	view direction: need position of camera - in world space so need position of fragment in world space too
+	specular highlights: specularFactor calculated with reflected light and view direction, raise it to a power, pow()
+- viewDir = cameraPos - (position in world space)
+- specularComponent = lightColor * specularFactor * specularStrength;
+
+Blinn Phong:
+handles angles > 90 degrees better, handles edges better
+no reflection vector, halfway vector H, halfway between view direction and light direction
+H = I+V / |I+V| = H = I+V
+closer H is to Normal, the higher the specular value 
+not using reflect() so must negate lightDir for directional light, blinn phong looks better with a larger exponent than traditional phong
+
+attenuation: inverse square law, strength of light inversely proportional to square distance from light source, too limiting for 3D graphics
+-luminosity = 1/attenuation
+-attenuation = Kc + Kl * d + Ke * d(^2)
+	Kc = constant factor
+	Kl = linear factor
+	Ke = exponential factor
+light has 'range', Kc = 1.0 to sensure denominator is never less than 1.0, Kl and Ke control range
+
+point light: has position in world (unlike directional light), equal amount of light in all directions, attenuation- light fades with distance
+update light struct with -attenuation constants, light colour, light position
+previously with directional light - vec3 lightDir =- directionLightDir
+now - vec3 lightDir = pointLightPosition - fragPositionWS
+- code:
+struct pointLight{
+	vec3 position;
+	vec3 ambientCol;
+	vec3 diffuseCol;
+	vec3 specCol;
+	float kC;
+	float lC;
+	float qC;
+};
+uniform pointLight pLight;
+
+do lot's of multiple point lights for better marks
+Multiple point lights: often we want to have more than just one point light, looks better, lighting is expensive - balance, later point shadows can increase cost furthers
+- code:
+#define numPointLights 2
+//uniform pointLight pLight;
+uniform pointLight pLight[numPointLights];
+
+//shader set uniform in source:
+shader.setVec3("pLight[0].position", glm::vec3(2.0);
+shader.setVec3("pLight[0].color", glm::vec3....;
+shader.setFloat("pLight[0].Kc", 1.0f);
+
+//result in frag shader main
+vec3 result = vec3(0.0f);
+for (int i = 0; i < numPointLights; i++)
+	result = result + getPointLight(norm, viewDir);
+
+spot light: does not shoot light rays in all directions, only fragments within a certain radius are illuminated, everything else stays dark
+has position in world space (like point light), has attenuation (like point light), has direction (like directional light), has cut-off angle
+	cut off angle- Cone c, 0c = Cosine of angle between r2 and l (or r1 and l), 0c = r2.l (dot product), 0c1 = cosine of angle between V and l, 0c1 = V.l (dot product)
+	if 0c1 > 0c - fragment outside of cone
+	if just inside/outside might look strange - a circle in darkness, gradually decrease light toward the edge, define another cone - inner and outer cone
+	-calculate 0c1 and 0c, if frag in inner cone- result = 1.0 , if frag outside outer cone- result = 0.0
+	-if frag between inner and outer- result = [1,0], interpolate between inner and outer
+	Illumination = 0 - outerRad / innerRad - outerRad (these are cosines of angles)
+-code:
+struct spotLight{
+	vec3 position;
+	vec3 direction;
+	vec3 ambientCol;
+	vec3 diffuseCol;
+	vec3 specCol;
+	float Kc;
+	float Kl;
+	float Ke;
+
+	float innerRad;
+	float outerRad;
+}
+uniform spotLight sLight;
+
+spot light frag shader: very similar to point light with one change - calculating the inner and outer radius as per the defn. of illumination on previous side
+-spec = spec*illumination
+-diff = diffuse*illumination (be careful with light direction)
+
+clamp() - a built in glsl and any time you interpolate, working on values you want to be between 0 and 1, use this function 
+illum = clam(illum, 0.0, 1.0);
+
+shader.setVec3("sLight.ambientCol", glm::vec3(0.1f, 0.1f, 0.1f));
+shader.setVec3("sLight.diffuseCol", glm::vec3(1.0f, 1.0f, 1.0f));
+shader.setVec3("sLight.specularCol", glm::vec3(1.0f, 1.0f, 1.0f));
+shader.setFloat("sLight.kC", 1.0f)
+shader.setFloat("sLight.lC", 0.027f)
+shader.setFloat("sLight.qC", 0.0028f);
+shader.setFloat("sLight.innerRad", glm::cos::(glm::radians(12.5f)));
+shader.setFloat("sLight.outerRad", glm::cos::(glm::radians(17.5f)));
+
+rim light: need surface normal and view direction, when view direction colinear with normal - least noticable,
+	   when surface normal and view direction perpendicular - most noticeable 
+v2 and n2 point in the same direction, light leaking around object will be minimal
+v1 and n1 almost perpendicular - most light bleeds here
+typically used with two constant variables - brightness B and sharpness S
+-rim = B(1.0 - N.V)^S : easy/cheap to implement and can give a nice effect
+thinking about lighting - so important for mood, atmosphere and gameplay. an art, and many established frameworks for film and photography
+			  not all of these transfer to games - for example 'three point lighting' system
+
+Textures:
+structured form of storage, a container - three components; type/target (eg GL_TEXTURE_2D), size, format
+accessible to shaders for reading and writing, most common type is 2D image, also 1D, 3D, CUBE_MAP, 1D_ARRAY, 2D_ARRAY, CUBE_MAP_ARRAY, and others
+texture coordinates - texel = pixel in a texture, example: 2D texture with width w and height h, coordinates associated with a vertex
+	Texture Space [(0,0),(1,1)], UV coordinates, example texture t is 300 x 200, UV at vertex v = (.5,.1), sample texture at (150,20)
+	UV values - typically provided with geometry from artist, add to vao along with position and normal
+What if UV outside range of [0,1]?
+	wrap textures, default is to repeat (GL_REPEAT) but: GL_MIRRORED_REPEAT, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_BORDER
+filtering - UV can return fractions (in fact, almost always!)
+	now, the uv coordinate falls between texels - nearest neighour (point sampling GL_NEAREST), linear filtering (weighted average of texels surrounding coordinate GL_LINEAR)
+	NN cheaper but Linear often looks better
+Minification & Magnification
+	Min Filter - Image zoomed out, many texels on source image make up single fragment on screen - NN or bilinear 
+	Mag Filter - Image zoomed in, one pixel on source image takes up many fragments on screen - NN or bilinear 
+MipMaps
+	textures far away (and thus smaller) have some resolution as textures close to camera 
+	set of textures - each half size of previous
+	after certain distance use smaller texture 
+	openGL will use texture best suited to distance 
+	- glGenerateMipmap()
+How to load textures - we will use a library : stb_image
+	single header image loading library
+	- int width, height, nrComponents;
+	- unsigned char* data = stbi_load(path, &width, &height, &nrComponents, 0);
+What do i do with this data?
+	Three concepts and how they interact: Texture objects, Texture units, Samplers
+create a texture object 
+- unsigned int textureID;
+- glGenTextures(1, &textureID);
+bind this object to use it
+- glBindTexture(GL_TEXTURE_2D, textureID); (GL_TEXTURE_2D - defines type/target)
+Texture Objects
+	texture completeness 
+	must specify parameters and minmaps
+Binding a texture object - 2 reasons we might bind a texture object, 1) to modify it's contents or parameters, 2) to render something with it
+	if only modifying then glBindTexture() is fine
+	if rendering...
+Texture units - texture objects work with texture units, open gl's commitment to backwards compatibility
+	Texture object can be bound to one or more locations, these locations are called texture units 
+- glActiveTexture() - this should be called glActiveTextureUnit, determines which unit a glBindTexture() call binds a texture object to
+-glGenTextures()
+-glBindTexture()
+-glTexImage2D()
+-glTexParameter
+Samplers 
+	A sampler is a uniform variable that represents an accessible texture
+	Sampler types correspond to texture object target/type
+	Uniform Sampler2D for GL_TEXTURE_2D etc.
+	Shader samplers reference texture unit indices - uniform sampler2D texture1; - shader.setInt("texture1", 0); (now texture1 is associated with texture unit 0)
+Using the sampler
+	UV coords - typically specified in VAO, layout in VS, out in VS, in in FS
+	use built in function texture()
+-uniform sampler2D texture1;
+-in vec3 normal
+-in vec3 posWS;
+-in vec2 uv;
+-void main() { vec3 color = texture(texture1, uv); }
+Diffuse Map/Texture - RGB
+	main texture for most models, objects
+	set the colour of the object
+Specular Map/Texture
+	certain areas on a surface are more reflective or 'shiny' than others
+	dark parts - very little specularity
+Diffuse Texture
+	Load texture with STB using loadTexture()
+	Declare uniform in frag shader
+	Set shader uniform in main
+	-glActiveTexture()
+	-glBindTexture()
+	in FragShader: 
+	-vec3 diffuseColor = texture(sampler2D, uv)
+Specular Map
+	Can improve object by accentuating specular highlight
+	load image
+	create another sampler2D uniform in shader
+	set uniform in main for this (likely, diffuse will be 0, spec will be 1)
+	-glBindTexture()
+	in frag shader:
+	-vec3 specColor = texture(sample2D,uv);
+
+Normal Mapping:
+Normals- per vertex, interpolated, smooth - problem if texture represents a bumpy surface
+	in our lighting models to really see surface detail we need a high level of detail - a lot of geometry, think of a cube face - 4 vertices
+	Key Idea: instead of interpolating normal, sample normal from texture, normal is now per fragment not per vertex
+	Normal encoded in texture
+	Each pixel is RGB
+	Treat RGB as XYZ
+	XYZ is direction of normal
+	-normal mapping worked on 2D texture because quad is orientated on the z axis facing the camera
+	blue tint on every normal map because RGB relates to XYZ, blue dominant so Z direction dominant in normal, tells us orientation of normals
+	-We can say that the normals are defined in their own local coordinate space called Tangent Space - need to convert these normals to Model Space
+Tangent space - local to surface of a primative (a triangle, say)
+	normals in map relative to local space of primitive
+	transform form local tangent space to model space
+	-model space to world space: model matrix
+	-world space to view space: view matrix
+	-need another matrix to transform: tangent -> model space: TBN matrix
+TBN matrix - Tangent, Bitangent, Normal (vec3) - together they form a space (or coordinate system)
+	Normal: (up vector), need a vector parallel to the surface, orientate tangent in same direction as UV, 
+	Tangent: (parallel to surface)
+	Bitangent: (perpendicular)
+-to calculate this:
+	sometimes, tangent vectors included in geometry data
+	- Bitangent = cross(normal, tangent)
+	if not provided:
+	- need to do it per triangle, remember T and B expressed in same direction as U and V, we know the UV value and the position of the vertices in model space
+	normal map is a texture with UV[0,1], triangle has UV at each vertex, can line these up
+	UV differences of edge E2 expressed in same direction as T and B, can express this as a linear combination of two independent vectors
+- E1 = delta*U1*T + delta*V1*B
+- E2 = delta*U2*T + delta*V2*B
+	solve for T and B
+Tangent and Bitangent - per triangle! Triangle has 3 vertices - 3 edges - we only need 2
+	each vertex has XYZ position and UV coordinate
+	first calculate the 2 triangle edges and delta UV
+- glm::vec3 v0 = vertex0.position
+- glm::vec3 v1 = vertex1.position
+- glm::vec2 uv0 = vertex0.uv
+- glm::vec2 uv1 = vertex1.uv
+
+-glm::vec3& v0 = verts[i + 0] ...
+-glm::vec3& uv0 = uv[i + 0] ...
+//edges of triangle (delta P)
+- glm::vec3 deltaPos1 = v1 - v0;
+- glm::vec3 deltaPos2 = v2 - v0;
+//difference in UV
+- glm::vec2 deltaUV1 = uv1 - uv0;
+- glm::vec2 deltaUV2 = uv2 - uv0;
+
+- float r = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV1.y * deltaUV2.x);
+- glm::vec3 thisTangent = (deltaPos1 * deltaUV2.y - deltaPos2 * deltaUV1.y) * r;
+- glm::vec3 thisBitangent = (deltaPos2 * deltaUV1.x - deltaPos1 * deltaUV2.x) * r;
+ update VAO with tangent and bitangent coords
+
+Optimisation: For lighting, need normal, light direction, view direction
+- currently
+	normals in tangent space
+	lights in world space
+	cameras in world space
+	(transform light and view direction to tangent space) 
+- because many more normals than light/view direction, each normal apply transformation
+	transform light and view in vertex shader, only sample normal map (no transform) in frag shader
+- how:
+	read uniforms for lights and view in vertex shader
+	create TBN in vertex shader
+	uniform vec3 viewPosWS;
+	viewPosTS = TBN*viewPosWS, etc
+	pass viewPosTS to frag shader
+	sample the normal and perform lighting calculations in tangent space
+
+Parralex Mapping:
+-pallalax: noun - "the effect by which the position or direction of an object appears to change when the object is see from different positions"
+	similar to normal mapping, adds detail and a sense of depth, use with normal mapping typically on walls or floors
+as with normal mapping, sense of depth is an illusion, parallax mapping similar to displacement mapping
+(virtual displacement mapping) both use a displacement map
+Displacement mapping - move or 'displace' vertex surface normal, how much distance to displace - read from map, actually creating geometry (not an illusion)
+	problem with this is that it needs a lot of vertices, take or displacement map and apply to floor (or any surface)
+Virtual Displacement Mapping:
+	try to replicate the efefcts of displacement with much fewer vertices
+	key idea for parallax mapping:
+		-alter (offset) texture coordinates based on view direction so a fragment appears higher or lower than it actually is
+
+Parallax mapping:
+- V is surface to view direction
+- Green line represents heights in displacement map
+- If surface had actual displacement viewer would see surface at point P1
+- However, surface is just a flat plane so viewer sees a surface at P0
+- In Parallax mapping we offset the UV coods at P0 to P1, offset based on view direction, use offset UV for sampling diffuse, specular and normal maps
+	-Offset to use: Scale V by the displacement at fragment P0 - D(P0)
+	-XY components of scaled V
+- texCoords = ParralaxMapping(uv, viewDir);
+- vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
+{
+	float height = texture(mat.displacementMap, texCoords).r;
+	return texCoords - (viewDir.xy) * (height * PXscale);
+}
+
+Steep Parallax Mapping:
+issues with basic PM algorithm
+-very rough approximation of surface
+-not suitable for steep edges or curves
+-not suitable for high frequency details in textures
+-lot's of extensions to basic algorithm- steep pm, parallax occlusion mapping, relief mapping and others
+one problem with vanilla PM is that the offset is very rough approximation
+because only 1 sample is taken
+steep parallax mapping (SPM) takes many samples to get better indication of actual position of P1
+
+Parallax Occlusion Mapping (POM):
+same idea as SPM but interpolate between layers before and after collision of view vector V and values in displacement map
+interpolate weighted on surface height
+usually much better results than STP but additional costs
+
+	
